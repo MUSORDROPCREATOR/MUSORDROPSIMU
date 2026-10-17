@@ -11,9 +11,85 @@ import string
 import urllib.request
 import hashlib
 
+# ============ РЕКАВЕРИ ============
+error_recovery = False
+
+def kernel_panic():
+    """Вызывает панику и сохраняет статус ошибки."""
+    global error_recovery
+    print("\n    \033[31mRECOVERY PANIC")
+    print("Recovery mode encountered an error.")
+    print("The game will no longer launch correctly.\033[0m")
+    
+    # 1. Включаем ошибку
+    error_recovery = True
+    
+    # 2. Снимаем блокировку (чтобы не застрять на пароле)
+    locked_path = os.path.join(SAVE_DIR, "locked.txt")
+    if os.path.isfile(locked_path):
+        os.remove(locked_path)
+    
+    # 3. Сохраняем статус в errormode.txt
+    save()
+    
+    # 4. Ломаем игру с настоящей ошибкой Python
+    raise Exception("RECOVERY PANIC: Kernel mode failed. The game is corrupted.")
+
+def recovery_mode():
+    kolvo = 0
+    while True:
+        print("\033[31m    RECOVERY MODE\033[0m")
+        print("1 — Стереть аккаунт")
+        print("2 — Посмотреть баланс")
+        print("3 — посмотреть содержимое хэша пароля")
+        print("4 — сбросить пароль")
+        print("5 — загрузится в обычный режим")
+        choice = input("> ").strip()
+        
+        if choice == "1":
+            for file in os.listdir(SAVE_DIR):
+                file_path = os.path.join(SAVE_DIR, file)
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+            print("✅ Аккаунт полностью сброшен. Перезапуск...")
+            time.sleep(2)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+        elif choice == "2":
+            print(f"Баланс: {balance}")
+            
+        elif choice == "3":
+            pass_path = get_password_file()
+            if os.path.isfile(pass_path):
+                with open(pass_path, 'r', encoding='utf-8') as f:
+                    print(f"Хеш: {f.read()}")
+            else:
+                print("❌ Файл пароля не найден.")
+                
+        elif choice == "4":
+            path = get_password_file()
+            if os.path.isfile(path):
+                os.remove(path)
+            print("✅ Пароль удален. При следующем запуске игра попросит создать новый.")
+            
+        elif choice == "5":
+            global locked_mode_active
+            locked_mode_active = False
+            save()
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+        else:
+            kolvo += 1
+            if kolvo >= 10:
+                kernel_panic()
+            print("Некорректное действие.")
+
 # ============ ВЕРСИЯ ИГРЫ ============
 
-GAME_VERSION = "1.0 2303"
+GAME_VERSION = "1.0 2711"
 GITHUB_REPO = "MUSORDROPCREATOR/MUSORDROPSIMU"
 
 # ============ ТАМАГОЧИ =========
@@ -59,7 +135,6 @@ def default_pet():
 def tamagochi():
     global pets
     
-    # Если питомца ещё нет — выбираем
     if not pets or "active" not in pets:
         print("🐕 Выбери питомца:")
         print("1 — Пацан ")
@@ -80,47 +155,33 @@ def tamagochi():
         
         save_pets()
     
-    # Теперь у нас точно есть active — идём в меню
     main_tamagochi()
 
 def main_tamagochi():
     global pets
-    
-    # Защита от пустого pets
-    if not pets or "active" not in pets:
-        print("⚠️ Питомец не выбран!")
-        tamagochi()
-        return
-    
     if pets["active"] == "male":
         base_name = "Арчег"
     else:
         base_name = "Софиня"
     
-    # Проверяем имя
     if "name" not in pets:
-        print(f"Вообще эту собаку зовут {base_name}, но ты её можешь назвать по другому.")
-        print("Пустая строка = Базовое имя")
+        print(f"Вообще эту собаку зовут {base_name}, но ты её можешь назвать по другому. Пустая строка = Базовое имя")
         name_pet_vopros = input()
         if not name_pet_vopros:
             pets["name"] = base_name
         else:
             pets["name"] = name_pet_vopros
         save_pets()
-    
-    # Меню питомца
-    while True:
-        print(f"\n== ТАМАГОЧИ ({pets['name']}) ==")
-        print()
-        print("1 — Выйти")
-        choice = input().strip()
-        if choice == "1":
-            save_pets()
-            main()
-            return
-        else:
-            print("Напиши понятнее")
-
+    else:
+        while True:
+            print(f"== ТАМАГОЧИ ({pets['name']}) ==")
+            print()
+            print("1 — Выйти")
+            choice = input().strip()
+            if choice == "1":
+                main()
+            else:
+                print("Напиши понятнее")
 pets = default_pets()
 locked_mode_active = False
 _log_rollbacks = 0
@@ -128,23 +189,17 @@ _log_rollbacks = 0
 
 ЛОГ_КЛЮЧ = "musordrop_secret_2026_log"
 
-
 def xor_encrypt(text, key):
-    """Шифрует/расшифровывает текст XOR-ом с ключом."""
     result = []
     for i, ch in enumerate(text):
         result.append(chr(ord(ch) ^ ord(key[i % len(key)])))
     return "".join(result)
 
-
 def encode_log(data_str):
-    """Кодирует строку в безопасный текст (hex)."""
     encrypted = xor_encrypt(data_str, ЛОГ_КЛЮЧ)
     return encrypted.encode("utf-8").hex()
 
-
 def decode_log(hex_str):
-    """Расшифровывает hex обратно в строку."""
     try:
         encrypted = bytes.fromhex(hex_str).decode("utf-8")
         return xor_encrypt(encrypted, ЛОГ_КЛЮЧ)
@@ -176,7 +231,6 @@ def save_log():
         f.write(encoded)
 
 def load_log():
-    """Читает лог из файла (расшифрованный)."""
     log_path = os.path.join(SAVE_DIR, "load_log.txt")
 
     if not os.path.isfile(log_path):
@@ -196,7 +250,6 @@ def load_log():
                 key, value = line.split("=", 1)
                 data[key.strip()] = value.strip()
 
-        # Преобразуем числа
         for key in ["balance", "money", "cases", "streak", "best_streak", "freezes", "rollbacks"]:
             if key in data:
                 try:
@@ -204,11 +257,9 @@ def load_log():
                 except ValueError:
                     data[key] = 0
 
-        # Логические
         if "funny_mode" in data:
             data["funny_mode"] = data["funny_mode"] == "True"
 
-        # Списки
         if "visited" in data:
             data["visited"] = [d for d in data["visited"].split("|") if d]
         else:
@@ -225,7 +276,6 @@ def load_log():
         return {}
 
 def check_log():
-    """Сверяет файлы с логом. Если изменены — откатывает."""
     global balance, money, cases, streak, best_streak, name, player_id, смешно_mode, freezes
     global visited_dates, frozen_dates
 
@@ -238,7 +288,6 @@ def check_log():
     rollbacks = log_data.get("rollbacks", 0)
     changed = False
 
-    # Сверяем ключевые значения
     if log_data.get("balance") != balance:
         balance = log_data.get("balance", 100)
         changed = True
@@ -276,11 +325,9 @@ def check_log():
 
         print(f"\n🔄 Файлы изменены — откат из лога (откатов: {rollbacks})\n")
 
-        # Сохраняем новый счётчик
         global _log_rollbacks
         _log_rollbacks = rollbacks
 
-        # Пересохраняем
         save()
 
         if rollbacks >= 10:
@@ -289,15 +336,12 @@ def check_log():
 
     return rollbacks
 
-# Смешно mode по умолчанию
 смешно_mode=False
-# По умолчанию пароль существует
 password_is_detected=True
 
 # ============ ПЛАТФОРМА ============
 
 def get_platform():
-    """Определяет реальную платформу (Android, Windows, Linux, macOS)."""
     system = platform.system()
     release = platform.release().lower()
 
@@ -310,7 +354,6 @@ def get_platform():
     if system == "Linux":
         return "Linux"
     return system
-
 
 PLAT = get_platform()
 
@@ -329,12 +372,11 @@ elif PLAT == "Linux":
     BASE_DIR = os.path.expanduser("~")
     SAVE_DIR = os.path.join(BASE_DIR, ".musordrop")
     MODLOADER_DIR = os.path.join(BASE_DIR, "musordrop_modloader")
-else:  # macOS
+else:
     BASE_DIR = os.path.expanduser("~")
     SAVE_DIR = os.path.join(BASE_DIR, "musordropdata")
     MODLOADER_DIR = os.path.join(BASE_DIR, "musordrop_modloader")
 
-# общие пути для ВСЕХ ОС
 MODS_DIR = os.path.join(SAVE_DIR, "mods")
 MDS_DIR = os.path.join(SAVE_DIR, "mds")
 TEMP_DIR = os.path.join(SAVE_DIR, "temp")
@@ -360,16 +402,13 @@ rarities = []
 countries = []
 name_vishka = ""
 
-
 # ============ ФУНКЦИЯ ОЧИСТКИ ЭКРАНА ============
 
 def clear_screen():
-    """Очищает экран в зависимости от ОС."""
     if PLAT == "Windows":
         os.system('cls')
     else:
         os.system('clear')
-
 
 # ============ СПИСОК ОШИБОК 6G ============
 
@@ -413,45 +452,33 @@ ERRORS_6G = [
     "Подключись к другой вышке",
     "ыыыы я сломался",
     "жжжжжжжжжжжжжжжж ой прости я в пчёлку превратился",
-]
+        ]
 # ============ ПАРОЛЬ ============
 
 СОЛЬ = "musordrop_secret_2026_v1"
 
-
 def hash_password(password):
-    """Хеширует пароль (SHA-256 + соль)."""
     return hashlib.sha256((password + СОЛЬ).encode()).hexdigest()
 
-
 def check_password(password, hashed):
-    """Проверяет, совпадает ли пароль с хешем."""
     return hash_password(password) == hashed
 
-
 def get_password_file():
-    """Возвращает путь к файлу с паролем."""
     return os.path.join(SAVE_DIR, "password.hash")
 
-
 def save_password(password):
-    """Сохраняет хеш пароля в файл."""
     hashed = hash_password(password)
     with open(get_password_file(), "w", encoding="utf-8") as f:
         f.write(hashed)
 
-
 def load_password_hash():
-    """Загружает хеш пароля из файла."""
     path = get_password_file()
     if os.path.isfile(path):
         with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
     return None
 
-
 def get_reset_count():
-    """Возвращает число сбросов пароля."""
     path = os.path.join(SAVE_DIR, "reset_count.txt")
     if os.path.isfile(path):
         try:
@@ -461,18 +488,14 @@ def get_reset_count():
             return 0
     return 0
 
-
 def increase_reset_count():
-    """Увеличивает счётчик сбросов на 1."""
     path = os.path.join(SAVE_DIR, "reset_count.txt")
     count = get_reset_count() + 1
     with open(path, "w", encoding="utf-8") as f:
         f.write(str(count))
     return count
 
-
 def reset_password():
-    """Сбрасывает пароль, просит новый."""
     clear_screen()
     print("\033[43m\033[30m")
     print("╔══════════════════════════════╗")
@@ -500,9 +523,7 @@ def reset_password():
     print("⚠️ ВНИМАНИЕ: следующая серия из 4 промахов — РЕСЕТ АККАУНТА!")
     time.sleep(2)
 
-
 def reset_account_by_password():
-    """Сбрасывает ВЕСЬ аккаунт (после второй серии из 4 промахов)."""
     clear_screen()
     print("\033[41m\033[37m")
     print("╔══════════════════════════════╗")
@@ -535,14 +556,12 @@ def reset_account_by_password():
     time.sleep(2)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-
 def verify_password():
-    """Проверяет пароль с двухуровневой системой сброса."""
     saved = load_password_hash()
 
     if not saved:
         password_is_detected=False
-        return True  # пароля нет — пропускаем
+        return True
 
     attempts = 0
     maximum = 4
@@ -578,13 +597,10 @@ def verify_password():
 # ============ ID СИСТЕМА ============
 
 def generate_id(length=8):
-    """Генерирует уникальный ID из букв и цифр."""
     chars = string.ascii_letters + string.digits
     return ''.join(random.choices(chars, k=length))
 
-
 def generate_unique_id(length=8):
-    """Генерирует уникальный ID, проверяя, что такого нет."""
     existing_ids = set()
     id_file = os.path.join(SAVE_DIR, "all_ids.txt")
 
@@ -599,11 +615,9 @@ def generate_unique_id(length=8):
                 f.write(f"{new_id}\n")
             return new_id
 
-
 # ============ ПРОВЕРКА СЕРВЕРОВ ============
 
 def check_custom_server():
-    """Проверяет доступность кастомного сервера по URL."""
     print("\n\033[36m═══════════════════════════════")
     print("       🌐 ПРОВЕРКА СЕРВЕРА")
     print("═══════════════════════════════\033[0m")
@@ -653,9 +667,7 @@ def check_custom_server():
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 def check_bro():
-    """Проверяет доступность DeepSeek."""
     try:
         req = urllib.request.Request(
             "https://deepseek.com",
@@ -672,9 +684,7 @@ def check_bro():
 
 _mods_cache = None
 
-
 def import_mods():
-    """Копирует моды из modloader в mods, ведёт лог."""
     global _mods_cache
 
     os.makedirs(MODLOADER_DIR, exist_ok=True)
@@ -740,9 +750,7 @@ def import_mods():
 
     _mods_cache = None
 
-
 def clear_temp():
-    """Очищает папку temp при сохранении."""
     if not os.path.isdir(TEMP_DIR):
         return
 
@@ -755,9 +763,7 @@ def clear_temp():
         except Exception:
             pass
 
-
 def load_mods():
-    """Загружает все моды из папки mods (с кэшированием)."""
     global _mods_cache
     if _mods_cache is not None:
         return _mods_cache
@@ -769,9 +775,15 @@ def load_mods():
         _mods_cache = mods
         return mods
 
+    SKIP_FILES = {"example.json"}
+
     for filename in os.listdir(MODS_DIR):
         if not filename.endswith(".json"):
             continue
+
+        if filename in SKIP_FILES:
+            continue
+
         path = os.path.join(MODS_DIR, filename)
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -787,9 +799,7 @@ def load_mods():
     _mods_cache = mods
     return mods
 
-
 def get_start_balance():
-    """Возвращает стартовый баланс с учётом модов."""
     start = 100
     for mod in load_mods():
         if "start_balance" in mod:
@@ -801,23 +811,17 @@ def get_start_balance():
                 pass
     return start
 
-
 def strip_ansi(text):
-    """Удаляет ANSI-коды из строки."""
     return re.sub(r'\033\[[0-9;]*[a-zA-Z]', '', text)
 
-
 def sanitize_text(text):
-    """Очищает текст от ANSI-кодов и управляющих символов."""
     if not isinstance(text, str):
         text = str(text)
     text = strip_ansi(text)
     text = ''.join(ch for ch in text if ch.isprintable() or ch == ' ')
     return text
 
-
 def build_rarities():
-    """Собирает все редкости: базовые + из модов."""
     base_rarities = [
         {"name": "🛑 Ошибка сервера +", "chance": 0.02, "message": "\033[41m\033[37m🛑 ОШИБКА 429! СЛУЖБА НЕ РАБОТАЕТ!\033[0m"},
         {"name": "⛔ Ошибка сервера", "chance": 0.05, "message": "\033[41m\033[37m⛔ Ошибка 503: сервис MUSOR DROP временно недоступен.\033[0m"},
@@ -853,18 +857,14 @@ def build_rarities():
 
     return result
 
-
 def normalize(items):
-    """Нормализует шансы, если сумма > 1.0."""
     total = sum(i["chance"] for i in items)
     if total > 1.0:
         for i in items:
             i["chance"] /= total
     return items
 
-
 def build_countries():
-    """Базовые + из модов."""
     base_countries = [
         {"name": "🇺🇸 США", "chance": 0.05, "prize": 15000, "special": "return_all"},
         {"name": "🇩🇪 Германия", "chance": 0.05, "prize": 8000, "special": "return_half"},
@@ -901,16 +901,13 @@ def build_countries():
 
     return result
 
-
 def init_game_data():
-    """Загружает базовые данные + моды."""
     global rarities, countries
     rarities = normalize(build_rarities())
     countries = normalize(build_countries())
 # ============ СОХРАНЕНИЕ ============
 
 def reset_account():
-    """Сбрасывает аккаунт при повреждённых данных."""
     global name, balance, money
     balance = get_start_balance()
     money = 0
@@ -918,9 +915,7 @@ def reset_account():
     save()
     print("🆕 Аккаунт сброшен")
 
-
 def save():
-    """Сохраняет все данные игрока в файлы."""
     global name, balance, money, visited_dates, frozen_dates, streak, best_streak, last_date, freezes, player_id, locked_mode_active
     os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -948,18 +943,18 @@ def save():
         f.write(f"{player_id}")
     with open(os.path.join(SAVE_DIR, "locked.txt"), "w", encoding="utf-8") as f:
         f.write(f"{locked_mode_active}")
+    with open(os.path.join(SAVE_DIR, "errormode.txt"), "w", encoding="utf-8") as f:
+        f.write(f"{error_recovery}")
 
     print("💾 Сохранено!")
     clear_temp()
     save_log()
     save_pets()
 
-
 def load_game():
-    """Возвращает True, если загрузились. Иначе — False."""
     global name, balance, money, cases, visited_dates, frozen_dates
     global streak, best_streak, last_date, freezes, player_id, locked_mode_active
-    global pets
+    global pets, error_recovery
 
     if not os.path.isfile(os.path.join(SAVE_DIR, "username.txt")):
         print("🆕 Новый игрок, начинаем с нуля")
@@ -1042,24 +1037,27 @@ def load_game():
     else:
         freezes = 2
 
+    error_path = os.path.join(SAVE_DIR, "errormode.txt")
+    if os.path.isfile(error_path):
+        with open(error_path, "r", encoding="utf-8") as f:
+            error_recovery = f.read().strip() == "True"
+    else:
+        error_recovery = False
     locked_path = os.path.join(SAVE_DIR, "locked.txt")
     if os.path.isfile(locked_path):
         with open(locked_path, "r", encoding="utf-8") as f:
             locked_mode_active = f.read().strip() == "True"
     else:
         locked_mode_active = False
-
     pets = load_pets()
 
     os.makedirs(MODS_DIR, exist_ok=True)
     os.makedirs(MDS_DIR, exist_ok=True)
     return True
 
-
 # ============ ПРОВЕРКА ИМЕНИ И ЧИСЕЛ ============
 
 def is_valid_number(text):
-    """Проверяет, что строка — целое неотрицательное число."""
     text = text.strip()
     if not text:
         return False
@@ -1070,9 +1068,7 @@ def is_valid_number(text):
         return False
     return True
 
-
 def check_name(name):
-    """Проверяет, что ник на кириллице и не пустой."""
     name = name.strip()
     if len(name) < 3:
         return False
@@ -1086,11 +1082,9 @@ def check_name(name):
             return False
     return True
 
-
 # ============ СТРАЙК ============
 
 def check_streak():
-    """Проверяет и обновляет страйк с учётом заморозок."""
     global streak, best_streak, last_date, freezes, diff, visited_dates, frozen_dates
     today = datetime.date.today().isoformat()
 
@@ -1129,9 +1123,7 @@ def check_streak():
 
     last_date = today
 
-
 def show_streak():
-    """Показывает недельную полоску страйка."""
     global visited_dates, frozen_dates, streak, best_streak, freezes
     today = datetime.date.today()
     days = [today - datetime.timedelta(days=i) for i in range(6, -1, -1)]
@@ -1165,11 +1157,9 @@ def show_streak():
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 # ============ СКИЛЛ ============
 
 def progress_bar(current, target, length=20):
-    """Рисует прогресс-бар."""
     if target <= 0:
         return "█" * length
 
@@ -1178,9 +1168,7 @@ def progress_bar(current, target, length=20):
     bar = "█" * filled + "░" * (length - filled)
     return f"[{bar}] {percent * 100:.1f}%"
 
-
 def show_skill():
-    """Показывает скилл игрока в фарме."""
     print("\n\033[36m═══════════════════════════════")
     print("       📊 СКИЛЛ ФАРМА")
     print("═══════════════════════════════\033[0m")
@@ -1235,11 +1223,9 @@ def show_skill():
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 # ============ ЛОГ ДРОПОВ ============
 
 def log_drop(drop_type, name_drop, chance, prize=None, cases_num=None):
-    """Записывает дроп в CSV-файл."""
     log_path = os.path.join(SAVE_DIR, "drops_log.csv")
     file_exists = os.path.isfile(log_path)
 
@@ -1262,9 +1248,7 @@ def log_drop(drop_type, name_drop, chance, prize=None, cases_num=None):
     except Exception:
         pass
 
-
 def show_top_drops():
-    """Показывает топ-5 лучших дропов."""
     log_path = os.path.join(SAVE_DIR, "drops_log.csv")
     if not os.path.isfile(log_path):
         print("📊 Лог пуст (дропов ещё не было)")
@@ -1325,7 +1309,6 @@ def show_top_drops():
 # ============ КЕЙСЫ ============
 
 def vopros():
-    """Спрашивает: кейснуть ещё раз?"""
     while True:
         print("\nКейснуть ещё раз?")
         print("Да или нет или меню (д/н/м) ", end="")
@@ -1344,9 +1327,7 @@ def vopros():
         else:
             print("пиши нормально!")
 
-
 def kase():
-    """Открывает обычный кейс."""
     global money, balance, cases
     print(f"Крутим кейс, {name}...")
     time.sleep(random.randint(1, 5))
@@ -1383,9 +1364,7 @@ def kase():
     log_drop("kase", chosen["name"], chanse, cases_num=cases)
     vopros()
 
-
 def vopros_c():
-    """Спрашивает после кейса страны."""
     while True:
         print("\nКейснуть ещё раз?")
         print("Да или нет или меню (д/н/м) ", end="")
@@ -1402,9 +1381,7 @@ def vopros_c():
         else:
             print("пиши нормально!")
 
-
 def kase_country():
-    """Открывает кейс страны."""
     global money, balance, cases
     print(f"🌍 Открываем бокс с кейсами из разных стран, {name}...")
     time.sleep(2)
@@ -1462,11 +1439,9 @@ def kase_country():
     save()
     vopros_c()
 
-
 # ============ СТАВКА ============
 
 def stavka():
-    """Ставка на редкость."""
     global balance
     if balance <= 0:
         print("💀 Денег нет. Иди работай.")
@@ -1545,11 +1520,9 @@ def stavka():
     print(f"💰 Баланс: {balance}")
     main()
 
-
 # ============ 6G ============
 
 def SIX_G():
-    """Подключение к 6G вышке."""
     global name_vishka, balance
     print("\n\033[45m\033[30m================")
     print("ПОДКЛЮЧЕНИЕ К 6G")
@@ -1610,20 +1583,16 @@ def SIX_G():
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 # ============ СПИНОЧЕСАЛКА ============
 
 def spinochesalka():
-    """Рофл-функция."""
     print("ДА АЛО ЭТО РОФЛ БЫЛ")
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 # ============ ПРОВЕРКА СТИХА ============
 
 def check_poem():
-    """Проверяет, выучил ли игрок стих Тютчева 'Листья'."""
     global balance
 
     original = """Пусть сосны и ели
@@ -1721,7 +1690,6 @@ def check_poem():
     input("\nНажми Enter чтобы вернуться в меню...")
     main()
 
-
 # ============ ДОКУМЕНТАЦИЯ ============
 
 DOCS = {
@@ -1815,9 +1783,7 @@ DOCS = {
 """,
 }
 
-
 def ensure_docs():
-    """Создаёт документацию, если её нет."""
     os.makedirs(MDS_DIR, exist_ok=True)
     created = 0
     for filename, content in DOCS.items():
@@ -1831,7 +1797,6 @@ def ensure_docs():
                 pass
     if created > 0:
         print(f"📖 Создано файлов документации: {created}")
-
 
 # ============ HTML-РЕДАКТОР МОДОВ ============
 
@@ -1904,9 +1869,7 @@ function copyToClipboard() {
 </body>
 </html>"""
 
-
 def ensure_mod_editor():
-    """Создаёт HTML-редактор модов, если его нет."""
     os.makedirs(SAVE_DIR, exist_ok=True)
     editor_path = os.path.join(SAVE_DIR, "mode_creator.html")
 
@@ -1917,14 +1880,52 @@ def ensure_mod_editor():
             print(f"🌐 Создан редактор модов: {editor_path}")
         except Exception:
             pass
+
+# ============ ПРИМЕР МОДА ============
+
+EXAMPLE_MOD_NAME = "example.json"
+
+EXAMPLE_MOD_CONTENT = {
+    "name": "Example Mod — все страны и кейсы",
+    "author": "MUSORDROP Team",
+    "version": "1.0",
+    "description": "Это пример мода. Тут показаны все базовые редкости и страны. Скопируй этот файл в modloader/ и измени под себя.",
+    "start_balance": 100,
+    "rarities": [
+        {"name": "🛑 Ошибка сервера +", "chance": 0.02, "message": "🛑 ОШИБКА 429! СЛУЖБА НЕ РАБОТАЕТ!"},
+        {"name": "⛔ Ошибка сервера", "chance": 0.05, "message": "⛔ Ошибка 503: сервис MUSOR DROP временно недоступен."},
+        {"name": "🎉 УЛЬТРА ЛЕГЕНДАРКО", "chance": 0.04, "message": "🎉 УЛЬТРА ЛЕГЕНДАРКО!"},
+        {"name": "🎉 ЛЕГЕНДАРКО", "chance": 0.01, "message": "🎉 ЛЕГЕНДАРКО!"},
+        {"name": "🔵 Супер-редко", "chance": 0.40, "message": "🔵 Супер-редко!"},
+        {"name": "🟢 Редко", "chance": 0.17, "message": "🟢 Редко!"},
+        {"name": "🟡 Ункомонка", "chance": 0.13, "message": "🟡 Ункомонка!"},
+        {"name": "⚪ Комонка", "chance": 0.20, "message": "⚪ Ну вот, коммонка."}
+    ],
+    "countries": [
+        {"name": "🇺🇸 США", "chance": 0.05, "prize": 15000, "special": "return_all"},
+        {"name": "🇩🇪 Германия", "chance": 0.05, "prize": 8000, "special": "return_half"},
+        {"name": "🇨🇳 Китай", "chance": 0.30, "prize": 3000, "special": "free_case"},
+        {"name": "🇰🇵 Корея", "chance": 0.27, "prize": 1500, "special": "discount"},
+        {"name": "🇰🇿 Казахстан", "chance": 0.13, "prize": 700},
+        {"name": "🇷🇺 Россия", "chance": 0.20, "prize": 300}
+    ]
+}
+
+def ensure_example_mod():
+    os.makedirs(MODS_DIR, exist_ok=True)
+    path = os.path.join(MODS_DIR, EXAMPLE_MOD_NAME)
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(EXAMPLE_MOD_CONTENT, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Не удалось создать example.json: {e}")
 # ============ ВЫХОД ============
 
 def exit_p():
-    """Сохраняет и выходит."""
     save()
     clear_screen()
     sys.exit(0)
-
 
 # ============ ГЛАВНОЕ МЕНЮ ============
 
@@ -1932,18 +1933,16 @@ def show_money():
     print(f"\n💰 Баланс: {balance}")
     print(f"💸 Всего списано на кейсы: {money}")
 
-
 def info():
     print("\033[42m\033[30m=======================")
     print("    ИНФОРМАЦИЯ О ПРОЕКТЕ")
     print("=======================\033[0m")
     print("Дата создания: 02.10.2026")
-    print("Версия: 1.0 2303")
+    print(f"Версия: {GAME_VERSION}")
     print("Дата создания версии: 16.10.2026")
     print("Автор: Кирилл")
     print("\nНажми Enter что бы вернуться в меню...")
     input()
-
 
 # ===========РЕЖИМ БЛОКИРОВКИ==========
 
@@ -1958,7 +1957,9 @@ def locked_mode():
         entered = input().strip()
         saved = load_password_hash()
 
-        if check_password(entered, saved):
+        if entered == "хз":
+            recovery_mode()
+        elif saved and check_password(entered, saved):
             print("\n✅ Пароль верный! Разблокировка...")
             time.sleep(1)
             with open(os.path.join(SAVE_DIR, "locked.txt"), "w", encoding="utf-8") as f:
@@ -1967,7 +1968,6 @@ def locked_mode():
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
         print("❌ Неверный пароль! Попробуй ещё.\n")
-
 
 def create_password():
     print("\n🔑 Придумай пароль (минимум 4 символа):")
@@ -1979,15 +1979,12 @@ def create_password():
     save_password(password)
     print("✅ Пароль сохранён!")
 
-
 def logo():
     print('\n\033[31m█████████████████')
     print('█\033[1m\033[36mMUSOR DROP SIMU\033[0m\033[31m█')
     print('█████████████████\033[0m')
 
-
 def main():
-    """Главное меню игры."""
     global locked_mode_active
     while True:
         logo()
@@ -2090,11 +2087,9 @@ def main():
         else:
             print("Ниче не понял")
 
-
 # ============ ПРОВЕРКА ВЕРСИИ ИГРЫ ============
 
 def check_latest_version():
-    """Спрашивает у GitHub последнюю версию игры."""
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"User-Agent": "MUSORDROP"})
@@ -2104,9 +2099,7 @@ def check_latest_version():
     except Exception:
         return None
 
-
 def should_check_version():
-    """Проверяет, можно ли проверять версию (не чаще раза в день)."""
     path = os.path.join(SAVE_DIR, "last_version_check.txt")
 
     if not os.path.isfile(path):
@@ -2122,9 +2115,7 @@ def should_check_version():
         pass
     return False
 
-
 def mark_version_checked():
-    """Записывает дату последней проверки."""
     os.makedirs(SAVE_DIR, exist_ok=True)
     path = os.path.join(SAVE_DIR, "last_version_check.txt")
     try:
@@ -2133,9 +2124,7 @@ def mark_version_checked():
     except Exception:
         pass
 
-
 def check_version():
-    """Сравнивает версию игры с последней на GitHub."""
     if not should_check_version():
         return
 
@@ -2163,11 +2152,10 @@ def check_version():
         print()
         time.sleep(3)
 
-
 # ============ ЗАПУСК ============
 
 if __name__ == "__main__":
-    # 0. ПРОВЕРКА ВЕРСИИ PYTHON
+    # 0. ПРОВЕРКА ВЕРСИИ — САМОЕ ПЕРВОЕ
     if sys.version_info < (3, 7):
         print(f"❌ Требуется Python 3.7+!")
         print(f"   У тебя: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
@@ -2176,16 +2164,17 @@ if __name__ == "__main__":
 
     clear_screen()
 
-    # 0.5. ПРОВЕРКА ВЕРСИИ ИГРЫ
-    check_version()
-
     # 1. ЗАГРУЖАЕМ ДАННЫЕ
     game_exists = load_game()
 
     # 2. ПРОВЕРЯЕМ БЛОКИРОВКУ
-    if locked_mode_active == True:
+    if error_recovery == True:
+        print("Ошибка загрузки!")
+        sys.exit(1)
+    elif locked_mode_active == True:
         locked_mode()
     else:
+        # заставка
         print("твой ", end="", flush=True)
         time.sleep(0.3)
         print("высокий ", end="", flush=True)
@@ -2215,7 +2204,6 @@ if __name__ == "__main__":
         create_password()
         player_id = generate_unique_id(8)
         print(f"🔑 Твой ID: {player_id}")
-
         balance = get_start_balance()
         save()
     else:
@@ -2227,5 +2215,6 @@ if __name__ == "__main__":
     check_streak()
     ensure_docs()
     ensure_mod_editor()
+    ensure_example_mod()
     init_game_data()
     main()
